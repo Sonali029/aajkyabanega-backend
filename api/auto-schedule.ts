@@ -1,13 +1,22 @@
-import * as functions from 'firebase-functions';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import * as admin from 'firebase-admin';
 
-// Initialize Firebase Admin
-admin.initializeApp();
+// Initialize Firebase Admin (only once)
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
+}
 
 const db = admin.firestore();
 
+// Types
 interface MealSlotConfig {
-  time: string; // "HH:mm" format
+  time: string;
   schedulerOffsetMins: number;
   enabled: boolean;
 }
@@ -36,7 +45,7 @@ interface StaticDish {
   isVeg: boolean;
 }
 
-// Static dishes - copied from your app
+// Static dishes (60 total - 20 per meal)
 const STATIC_DISHES: StaticDish[] = [
   // Breakfast (20 dishes)
   { name: 'Aloo Paratha', mealSlots: ['breakfast'], isVeg: true },
@@ -105,9 +114,7 @@ const STATIC_DISHES: StaticDish[] = [
   { name: 'Fried Rice', mealSlots: ['dinner'], isVeg: true },
 ];
 
-/**
- * Fisher-Yates shuffle for true randomness
- */
+// Fisher-Yates shuffle
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -117,66 +124,34 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-/**
- * Calculate scheduler time based on meal time and offset
- */
+// Get scheduler time
 function getSchedulerTime(mealTime: string, offsetMins: number): Date {
   const [hours, mins] = mealTime.split(':').map(Number);
   const now = new Date();
   const mealDateTime = new Date(now);
   mealDateTime.setHours(hours, mins, 0, 0);
-
-  // Subtract offset
   const schedulerTime = new Date(mealDateTime.getTime() - offsetMins * 60 * 1000);
   return schedulerTime;
 }
 
-/**
- * Check if we should auto-schedule for a given slot
- *
- * Example scenario:
- * - Breakfast time: 8:00 AM
- * - Scheduler offset: 120 minutes (2 hours before)
- * - Scheduler time: 6:00 AM
- *
- * Timeline (if user hasn't selected):
- * - 5:59 AM → Scheduler checks → Too early, skip
- * - 6:00 AM → Scheduler checks → ✅ Picks random dish, saves to Firestore
- * - 6:15 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
- * - 6:30 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
- * - 7:00 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
- * - 8:00 AM → Meal time passed, skip
- *
- * Timeline (if user selects at 5:30 AM):
- * - 6:00 AM → Scheduler checks → Sees user's dish, SKIP ⏭️
- * - 6:15 AM → Scheduler checks → Sees user's dish, SKIP ⏭️
- * - All future checks → SKIP ⏭️
- *
- * IMPORTANT: Once ANY dish is selected (by user OR scheduler), this slot is
- * automatically skipped in all future runs. No wasted processing! ✅
- */
+// Check if should auto-schedule
 function shouldAutoSchedule(
   slotConfig: MealSlotConfig,
   currentScheduledDishId: string | undefined
 ): boolean {
   if (!slotConfig.enabled) return false;
-  if (currentScheduledDishId) return false; // ⏭️ SKIP if already scheduled (by user OR previous auto-schedule)
+  if (currentScheduledDishId) return false;
 
   const now = new Date();
   const schedulerTime = getSchedulerTime(slotConfig.time, slotConfig.schedulerOffsetMins);
-
-  // Parse meal time
   const [hours, mins] = slotConfig.time.split(':').map(Number);
   const mealTime = new Date(now);
   mealTime.setHours(hours, mins, 0, 0);
 
-  // Should schedule if: scheduler time has passed AND meal time hasn't passed
   return now >= schedulerTime && now < mealTime;
 }
 
-/**
- * Get today's date in yyyy-MM-dd format
- */
+// Get today's date string
 function getTodayDateString(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -185,9 +160,7 @@ function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Auto-schedule a dish for a meal slot
- */
+// Auto-schedule dish for family
 async function autoScheduleDishForFamily(
   familyId: string,
   slot: 'breakfast' | 'lunch' | 'dinner',
@@ -196,7 +169,6 @@ async function autoScheduleDishForFamily(
   const today = getTodayDateString();
   const slotId = `${today}_${slot}`;
 
-  // Check if already scheduled
   const slotDoc = await db
     .collection('families')
     .doc(familyId)
@@ -209,36 +181,16 @@ async function autoScheduleDishForFamily(
     return;
   }
 
-  // Get static dishes for this slot
   const staticEligible = STATIC_DISHES.filter((d) => d.mealSlots.includes(slot));
-
-  // Get family dishes for this slot
   const familyEligible = familyDishes.filter((d) => d.mealSlots.includes(slot));
-
-  // Create set of static dish names (lowercase)
-  const staticDishNames = new Set(
-    staticEligible.map((d) => d.name.toLowerCase().trim())
-  );
-
-  // Filter family dishes to get only unique ones
+  const staticDishNames = new Set(staticEligible.map((d) => d.name.toLowerCase().trim()));
   const uniqueFamilyDishes = familyEligible.filter(
     (d) => !staticDishNames.has(d.name.toLowerCase().trim())
   );
 
-  // Combine all dishes
   const allDishes: Array<{ id: string; name: string; source: 'static' | 'family' }> = [
-    // Add all static dishes
-    ...staticEligible.map((d) => ({
-      id: `static_${d.name}`,
-      name: d.name,
-      source: 'static' as const,
-    })),
-    // Add unique family dishes
-    ...uniqueFamilyDishes.map((d) => ({
-      id: d.id,
-      name: d.name,
-      source: 'family' as const,
-    })),
+    ...staticEligible.map((d) => ({ id: `static_${d.name}`, name: d.name, source: 'static' as const })),
+    ...uniqueFamilyDishes.map((d) => ({ id: d.id, name: d.name, source: 'family' as const })),
   ];
 
   if (allDishes.length === 0) {
@@ -246,11 +198,9 @@ async function autoScheduleDishForFamily(
     return;
   }
 
-  // Shuffle and pick
   const shuffled = shuffleArray(allDishes);
   const selectedDish = shuffled[0];
 
-  // Schedule the dish
   await db
     .collection('families')
     .doc(familyId)
@@ -271,15 +221,11 @@ async function autoScheduleDishForFamily(
     );
 
   console.log(`✅ ${familyId}/${slotId} - Auto-scheduled: ${selectedDish.name} (${selectedDish.source})`);
-  console.log(`   Pool: ${allDishes.length} total (${staticEligible.length} static + ${uniqueFamilyDishes.length} unique family)`);
 }
 
-/**
- * Process auto-scheduling for a single family
- */
+// Process family scheduling
 async function processFamilyScheduling(familyId: string): Promise<void> {
   try {
-    // Get family data
     const familyDoc = await db.collection('families').doc(familyId).get();
     if (!familyDoc.exists) {
       console.log(`⚠️ Family ${familyId} not found`);
@@ -294,7 +240,6 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
       return;
     }
 
-    // Get family dishes
     const dishesSnapshot = await db
       .collection('families')
       .doc(familyId)
@@ -309,12 +254,10 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
 
     const today = getTodayDateString();
 
-    // Check each meal slot
     for (const slot of ['breakfast', 'lunch', 'dinner'] as const) {
       const slotConfig = mealConfig[slot];
       const slotId = `${today}_${slot}`;
 
-      // Get current meal slot data
       const mealSlotDoc = await db
         .collection('families')
         .doc(familyId)
@@ -324,9 +267,8 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
 
       const scheduledDishId = mealSlotDoc.exists ? mealSlotDoc.data()?.scheduledDishId : undefined;
 
-      // Check if we should auto-schedule
       if (shouldAutoSchedule(slotConfig, scheduledDishId)) {
-        console.log(`🎲 ${familyId} - ${slot} needs scheduling (meal at ${slotConfig.time}, offset ${slotConfig.schedulerOffsetMins} mins)`);
+        console.log(`🎲 ${familyId} - ${slot} needs scheduling`);
         await autoScheduleDishForFamily(familyId, slot, familyDishes);
       }
     }
@@ -335,109 +277,39 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
   }
 }
 
-/**
- * HTTPS Function - triggered by GitHub Actions every 15 minutes
- *
- * HOW IT WORKS:
- * - GitHub Actions calls this function every 15 minutes (during active hours)
- * - For each family, checks each meal slot (breakfast, lunch, dinner)
- * - Each family has configured meal times in their mealConfig:
- *   Example: { breakfast: { time: "08:00", schedulerOffsetMins: 120, enabled: true } }
- *
- * SCHEDULING LOGIC:
- * - Auto-schedules a random dish ONLY if ALL conditions are met:
- *   1. Current time >= scheduler time (meal time - offset) [e.g., 6:00 AM for 8:00 AM breakfast]
- *   2. Current time < meal time [e.g., before 8:00 AM]
- *   3. No dish is already selected (by user OR previous auto-schedule)
- *
- * EFFICIENCY OPTIMIZATIONS:
- * 1. Smart polling: GitHub Actions only runs during active hours (5 AM - 10 PM IST)
- *    - Saves ~30% of invocations
- *    - Nobody schedules meals at 2 AM anyway!
- * 2. Skip already-scheduled slots: Once a dish is selected → slot is SKIPPED in all future runs ⏭️
- *    - Example: Breakfast scheduled at 6:00 AM → all checks at 6:15, 6:30, 6:45... skip it
- *    - Very fast: just reads mealSlot document, sees scheduledDishId exists, skips
- * 3. Parallel processing: All families processed concurrently for speed
- *
- * DISH SELECTION:
- * - Selects random dish from pool of: 20 static dishes + family's custom dishes
- * - Uses Fisher-Yates shuffle for true randomness
- * - Saves to Firestore with autoScheduled: true flag
- *
- * FREE TIER COMPATIBLE:
- * - HTTPS functions work on Firebase Spark (free) plan ✅
- * - No Blaze plan required!
- */
-export const autoScheduleMeals = functions.https.onRequest(async (req, res) => {
+// Main Vercel handler
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('🚀 Auto-scheduler triggered at:', new Date().toISOString());
 
-  // CORS headers for GitHub Actions
-  res.set('Access-Control-Allow-Origin', '*');
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
   if (req.method === 'OPTIONS') {
-    res.set('Access-Control-Allow-Methods', 'GET, POST');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
-    res.status(204).send('');
-    return;
+    return res.status(204).end();
   }
 
   try {
-    // Get all families
     const familiesSnapshot = await db.collection('families').get();
     console.log(`📊 Processing ${familiesSnapshot.size} families`);
 
-    // Process each family in parallel
-    const promises = familiesSnapshot.docs.map((doc) =>
-      processFamilyScheduling(doc.id)
-    );
-
+    const promises = familiesSnapshot.docs.map((doc) => processFamilyScheduling(doc.id));
     await Promise.all(promises);
 
     console.log('✅ Auto-scheduler completed successfully');
 
-    res.status(200).json({
-      success: true,
-      message: `Processed ${familiesSnapshot.size} families`,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error: any) {
-    console.error('❌ Auto-scheduler error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-/**
- * Manual trigger function for testing
- * Call this from Firebase Console or your app to test scheduling
- */
-export const triggerAutoScheduler = functions.https.onCall(async (data, context) => {
-  // Optional: Add auth check
-  // if (!context.auth) {
-  //   throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
-  // }
-
-  console.log('🧪 Manual trigger requested');
-
-  try {
-    const familiesSnapshot = await db.collection('families').get();
-    console.log(`📊 Processing ${familiesSnapshot.size} families`);
-
-    const promises = familiesSnapshot.docs.map((doc) =>
-      processFamilyScheduling(doc.id)
-    );
-
-    await Promise.all(promises);
-
-    return {
+    return res.status(200).json({
       success: true,
       message: `Processed ${familiesSnapshot.size} families`,
       timestamp: new Date().toISOString(),
-    };
+    });
   } catch (error: any) {
-    console.error('❌ Manual trigger error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    console.error('❌ Auto-scheduler error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
-});
+}
