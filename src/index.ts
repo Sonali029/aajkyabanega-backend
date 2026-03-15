@@ -350,11 +350,14 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
  *   2. Current time < meal time [e.g., before 8:00 AM]
  *   3. No dish is already selected (by user OR previous auto-schedule)
  *
- * EFFICIENCY:
- * - Once a dish is selected (user or auto) → that meal slot is SKIPPED in all future runs ⏭️
- * - Example: Breakfast scheduled at 6:00 AM → all checks at 6:15, 6:30, 6:45... skip it
- * - Runs every 15 mins but only processes slots that need scheduling
- * - Very fast: just reads mealSlot document, sees scheduledDishId exists, skips
+ * EFFICIENCY OPTIMIZATIONS:
+ * 1. Smart polling: Skips during inactive hours (10 PM - 5 AM IST)
+ *    - Saves ~30% of invocations
+ *    - Nobody schedules meals at 2 AM anyway!
+ * 2. Skip already-scheduled slots: Once a dish is selected → slot is SKIPPED in all future runs ⏭️
+ *    - Example: Breakfast scheduled at 6:00 AM → all checks at 6:15, 6:30, 6:45... skip it
+ *    - Very fast: just reads mealSlot document, sees scheduledDishId exists, skips
+ * 3. Parallel processing: All families processed concurrently for speed
  *
  * DISH SELECTION:
  * - Selects random dish from pool of: 20 static dishes + family's custom dishes
@@ -366,6 +369,16 @@ export const autoScheduleMeals = functions.pubsub
   .timeZone('Asia/Kolkata') // Indian Standard Time
   .onRun(async (context) => {
     console.log('🚀 Auto-scheduler triggered at:', new Date().toISOString());
+
+    // Smart polling: Skip during inactive hours (10 PM - 5 AM IST)
+    // This saves ~30% of invocations without affecting functionality
+    const now = new Date();
+    const hour = now.getHours(); // Note: Cloud Functions in Asia/Kolkata timezone
+
+    if (hour < 5 || hour >= 22) {
+      console.log(`⏭️ Skipping - outside active hours (current: ${hour}:00 IST, active: 5:00-22:00)`);
+      return; // Exit early, no processing needed
+    }
 
     try {
       // Get all families

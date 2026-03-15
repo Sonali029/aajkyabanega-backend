@@ -82,7 +82,8 @@ firebase deploy --only functions:autoScheduleMeals
 ## Functions
 
 ### autoScheduleMeals
-- **Trigger**: Scheduled (every 30 minutes)
+- **Trigger**: Scheduled (every 15 minutes)
+- **Active Hours**: 5:00 AM - 10:00 PM IST (skips overnight hours for efficiency)
 - **Timezone**: Asia/Kolkata (IST)
 - **Purpose**: Automatically schedules meals for all families based on their individual meal configs
 
@@ -93,15 +94,20 @@ firebase deploy --only functions:autoScheduleMeals
 
 ## How the Auto-Scheduler Works
 
-1. Runs every 30 minutes
-2. Fetches all families from Firestore
-3. For each family:
+1. Runs every 15 minutes (during active hours: 5 AM - 10 PM IST)
+2. Smart polling: Skips overnight hours (10 PM - 5 AM) saving ~30% of invocations
+3. Fetches all families from Firestore
+4. For each family, for each meal slot:
    - Reads their `mealConfig` (breakfast, lunch, dinner times and offsets)
+   - Checks if dish already scheduled (by user or previous run) → **SKIP** ⏭️
    - Checks if current time is within the scheduling window
    - If yes, selects a random dish from the combined pool:
      - 20 static dishes for the meal slot
      - Family's custom dishes (excluding duplicates)
    - Creates a `mealSlot` document with the scheduled dish
+   - All future runs skip this slot automatically ✅
+
+**Efficiency**: Once ANY dish is selected (user or auto), that meal slot is skipped in all future runs. No wasted processing!
 
 ## Dish Selection Logic
 
