@@ -2,10 +2,10 @@
   "name": "functions",
   "description": "Cloud Functions for Aaj Kya Banega",
   "scripts": {
-    "build": "tsc",
+    "build:firebase": "tsc",
     "build:watch": "tsc --watch",
-    "serve": "npm run build && firebase emulators:start --only functions",
-    "shell": "npm run build && firebase functions:shell",
+    "serve": "npm run build:firebase && firebase emulators:start --only functions",
+    "shell": "npm run build:firebase && firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"

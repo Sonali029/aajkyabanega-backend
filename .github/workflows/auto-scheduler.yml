@@ -22,10 +22,9 @@ jobs:
           echo "🚀 Triggering auto-scheduler at $(date)"
 
           # Call the Vercel serverless function
-          # TODO: Replace this URL with your actual Vercel deployment URL after deploying
           response=$(curl -s -w "\n%{http_code}" \
             -X POST \
-            https://YOUR_VERCEL_PROJECT.vercel.app/api/auto-schedule \
+            https://aajkyabanega-backend.vercel.app/api/auto-schedule \
             -H "Content-Type: application/json")
 
           # Extract HTTP status code and body
