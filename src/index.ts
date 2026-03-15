@@ -133,13 +133,34 @@ function getSchedulerTime(mealTime: string, offsetMins: number): Date {
 
 /**
  * Check if we should auto-schedule for a given slot
+ *
+ * Example scenario:
+ * - Breakfast time: 8:00 AM
+ * - Scheduler offset: 120 minutes (2 hours before)
+ * - Scheduler time: 6:00 AM
+ *
+ * Timeline (if user hasn't selected):
+ * - 5:59 AM → Scheduler checks → Too early, skip
+ * - 6:00 AM → Scheduler checks → ✅ Picks random dish, saves to Firestore
+ * - 6:15 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
+ * - 6:30 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
+ * - 7:00 AM → Scheduler checks → Sees dish already scheduled, SKIP ⏭️
+ * - 8:00 AM → Meal time passed, skip
+ *
+ * Timeline (if user selects at 5:30 AM):
+ * - 6:00 AM → Scheduler checks → Sees user's dish, SKIP ⏭️
+ * - 6:15 AM → Scheduler checks → Sees user's dish, SKIP ⏭️
+ * - All future checks → SKIP ⏭️
+ *
+ * IMPORTANT: Once ANY dish is selected (by user OR scheduler), this slot is
+ * automatically skipped in all future runs. No wasted processing! ✅
  */
 function shouldAutoSchedule(
   slotConfig: MealSlotConfig,
   currentScheduledDishId: string | undefined
 ): boolean {
   if (!slotConfig.enabled) return false;
-  if (currentScheduledDishId) return false; // Already scheduled
+  if (currentScheduledDishId) return false; // ⏭️ SKIP if already scheduled (by user OR previous auto-schedule)
 
   const now = new Date();
   const schedulerTime = getSchedulerTime(slotConfig.time, slotConfig.schedulerOffsetMins);
@@ -315,11 +336,33 @@ async function processFamilyScheduling(familyId: string): Promise<void> {
 }
 
 /**
- * Scheduled function - runs every 30 minutes
- * Checks all families and auto-schedules meals based on their individual configs
+ * Scheduled function - runs every 15 minutes
+ *
+ * HOW IT WORKS:
+ * - Runs every 15 minutes (this is just the "check" frequency to scan all families)
+ * - For each family, checks each meal slot (breakfast, lunch, dinner)
+ * - Each family has configured meal times in their mealConfig:
+ *   Example: { breakfast: { time: "08:00", schedulerOffsetMins: 120, enabled: true } }
+ *
+ * SCHEDULING LOGIC:
+ * - Auto-schedules a random dish ONLY if ALL conditions are met:
+ *   1. Current time >= scheduler time (meal time - offset) [e.g., 6:00 AM for 8:00 AM breakfast]
+ *   2. Current time < meal time [e.g., before 8:00 AM]
+ *   3. No dish is already selected (by user OR previous auto-schedule)
+ *
+ * EFFICIENCY:
+ * - Once a dish is selected (user or auto) → that meal slot is SKIPPED in all future runs ⏭️
+ * - Example: Breakfast scheduled at 6:00 AM → all checks at 6:15, 6:30, 6:45... skip it
+ * - Runs every 15 mins but only processes slots that need scheduling
+ * - Very fast: just reads mealSlot document, sees scheduledDishId exists, skips
+ *
+ * DISH SELECTION:
+ * - Selects random dish from pool of: 20 static dishes + family's custom dishes
+ * - Uses Fisher-Yates shuffle for true randomness
+ * - Saves to Firestore with autoScheduled: true flag
  */
 export const autoScheduleMeals = functions.pubsub
-  .schedule('every 30 minutes')
+  .schedule('every 15 minutes')
   .timeZone('Asia/Kolkata') // Indian Standard Time
   .onRun(async (context) => {
     console.log('🚀 Auto-scheduler triggered at:', new Date().toISOString());
