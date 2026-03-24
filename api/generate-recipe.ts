@@ -43,6 +43,12 @@ ${preferences ? `Additional preferences: ${preferences}` : ''}
 
 IMPORTANT: Return ONLY valid JSON with NO markdown, NO code blocks, NO extra text. Just the raw JSON object.
 
+CRITICAL RULES FOR INGREDIENT NAMES:
+- Use EXACT ingredient names without explanations or translations in parentheses
+- For Indian dishes, use authentic Indian ingredient names (e.g., "Pav" NOT "Pav (Dinner Rolls)")
+- Do NOT add clarifications like "(chopped)", "(optional)", or English translations
+- Keep ingredient names simple and authentic to the cuisine
+
 Use this EXACT format:
 {
   "ingredients": [
@@ -68,6 +74,7 @@ Example for reference:
   "ingredients": [
     {"name": "Tomatoes", "quantity": 100, "unit": "grams", "category": "vegetables"},
     {"name": "Oil", "quantity": 15, "unit": "ml", "category": "essentials"},
+    {"name": "Pav", "quantity": 2, "unit": "pieces", "category": "staples"},
     {"name": "Salt", "quantity": 0.5, "unit": "tsp", "category": "spices"}
   ],
   "recipe": [
