@@ -50,9 +50,21 @@ IMPORTANT: Return ONLY valid JSON with NO markdown, NO code blocks, NO extra tex
 
 CRITICAL RULES FOR INGREDIENT NAMES:
 - Use EXACT ingredient names without explanations or translations in parentheses
-- For Indian dishes, use authentic Indian ingredient names (e.g., "Pav" NOT "Pav (Dinner Rolls)")
 - Do NOT add clarifications like "(chopped)", "(optional)", or English translations
 - Keep ingredient names simple and authentic to the cuisine
+
+LANGUAGE CONSISTENCY RULES:
+- Use English for ALL common/basic ingredients: Water, Tomatoes, Onions, Oil, Salt, Sugar, Rice, etc.
+- Use authentic regional names ONLY for specialty items that don't have common English equivalents:
+  ✅ Good: "Pav", "Paneer", "Ghee", "Atta", "Besan", "Dal", "Papad", "Chaat Masala"
+  ❌ Bad: "Pani" (use "Water"), "Tamatar" (use "Tomatoes"), "Pyaz" (use "Onions")
+- When in doubt, use English for better clarity
+- Examples:
+  ✅ "Ginger Garlic Paste" NOT "Adrak Lahsun Paste"
+  ✅ "Tomato Puree" NOT "Tamatar Puree"
+  ✅ "Green Chillies" NOT "Hari Mirch"
+  ✅ "Coriander Leaves" NOT "Hara Dhaniya"
+  ✅ BUT keep: "Paneer", "Ghee", "Pav", "Dal", "Besan"
 
 Use this EXACT format:
 {
@@ -74,17 +86,19 @@ Use this EXACT format:
   ]
 }
 
-Example for reference:
+Example for reference (notice: "Tomatoes", "Water", "Oil" in English, but "Pav" stays regional):
 {
   "ingredients": [
     {"name": "Tomatoes", "quantity": 100, "unit": "grams", "category": "vegetables"},
+    {"name": "Water", "quantity": 50, "unit": "ml", "category": "essentials"},
     {"name": "Oil", "quantity": 15, "unit": "ml", "category": "essentials"},
     {"name": "Pav", "quantity": 2, "unit": "pieces", "category": "staples"},
+    {"name": "Ginger Garlic Paste", "quantity": 1, "unit": "tsp", "category": "spices"},
     {"name": "Salt", "quantity": 0.5, "unit": "tsp", "category": "spices"}
   ],
   "recipe": [
     {"stepNumber": 1, "title": "Prepare vegetables", "instruction": "Wash and chop tomatoes finely. Set aside in a bowl.", "duration": 5},
-    {"stepNumber": 2, "title": "Cook", "instruction": "Heat oil in a pan over medium heat. Add the chopped tomatoes and stir for 2-3 minutes.", "duration": 10}
+    {"stepNumber": 2, "title": "Cook base", "instruction": "Heat oil in a pan over medium heat. Add ginger garlic paste and sauté for 30 seconds. Add the chopped tomatoes and stir for 2-3 minutes.", "duration": 10}
   ]
 }`;
 
