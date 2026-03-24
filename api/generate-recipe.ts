@@ -34,8 +34,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         console.log(`🍽️ Generating recipe for: ${dishName}`);
 
-        // Get Gemini model
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        // Get Gemini model (using gemini-pro for stability)
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
         // Construct prompt
         const prompt = `Generate a detailed recipe for "${dishName}" (${cuisine} cuisine, ${isVeg ? 'vegetarian' : 'non-vegetarian'}) for 1 person.
